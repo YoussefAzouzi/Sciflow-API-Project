@@ -1,0 +1,352 @@
+:root {
+  --bg-page: #ffffff;
+  --bg-surface: #ffffff;
+  --bg-muted: #f3f4f6;
+  --accent: #2563eb;
+  --accent-soft: #e0f2fe;
+  --accent-border: #bfdbfe;
+  --logo-navy: #1f3b5b;
+  --logo-teal: #29b3a3;
+  --text-main: #111827;
+  --text-muted: #6b7280;
+  --border-subtle: #e5e7eb;
+  --shadow-soft: 0 8px 24px rgba(15, 23, 42, 0.06);
+  --radius-lg: 16px;
+  --radius-md: 10px;
+  --radius-pill: 999px;
+  --transition: 150ms ease-out;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+}
+
+body {
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif;
+  background: var(--bg-page);
+  color: var(--text-main);
+}
+
+/* Layout */
+
+.app-shell {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.app-header {
+  background: #ffffff;
+  border-bottom: 1px solid var(--border-subtle);
+  box-shadow: var(--shadow-soft);
+}
+
+.app-header-inner {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 12px 20px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  justify-content: space-between;
+}
+
+.app-title-group {
+  display: flex;
+  flex-direction: column;
+}
+
+.app-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--logo-navy);
+}
+
+.app-subtitle {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+.app-main {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  padding: 20px 16px 32px;
+  background: var(--bg-muted);
+}
+
+.app-main-inner {
+  width: 100%;
+  max-width: 1120px;
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(0, 1.2fr);
+  gap: 20px;
+}
+
+@media (max-width: 900px) {
+  .app-main-inner {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* Surfaces / panels */
+
+.panel {
+  background: var(--bg-surface);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-subtle);
+  box-shadow: var(--shadow-soft);
+  padding: 16px 18px;
+}
+
+.panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.panel-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.panel-title-pill {
+  margin-left: 8px;
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-muted);
+  color: var(--text-muted);
+  border: 1px solid var(--border-subtle);
+}
+
+.panel-description {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+/* Controls row (filters/sorting) */
+
+.controls-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.input,
+.select {
+  font-size: 13px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-muted);
+  color: var(--text-main);
+  min-width: 0;
+}
+
+.input:focus,
+.select:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px rgba(37, 99, 235, 0.25);
+}
+
+/* Buttons */
+
+.button {
+  font-size: 13px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: var(--logo-teal);
+  color: #ffffff;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background var(--transition), box-shadow var(--transition),
+    transform var(--transition);
+}
+
+.button:hover {
+  background: #1c8f84;
+  box-shadow: 0 10px 22px rgba(41, 179, 163, 0.35);
+  transform: translateY(-1px);
+}
+
+.button-secondary {
+  background: var(--bg-muted);
+  color: var(--text-main);
+  border-color: var(--border-subtle);
+}
+
+.button-secondary:hover {
+  background: #e5e7eb;
+}
+
+/* Conference list */
+
+.conferences-list {
+  list-style: none;
+  padding: 0;
+  margin: 10px 0 0;
+}
+
+.conference-item {
+  border-radius: 12px;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  border: 1px solid var(--border-subtle);
+  background: #ffffff;
+  transition: background var(--transition), box-shadow var(--transition),
+    transform var(--transition), border-color var(--transition);
+}
+
+.conference-item:hover {
+  background: #eef2ff;
+  box-shadow: 0 8px 18px rgba(79, 70, 229, 0.18);
+  border-color: var(--accent-border);
+  transform: translateY(-1px);
+}
+
+.conference-link {
+  text-decoration: none;
+  color: inherit;
+  display: block;
+}
+
+.conference-name-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.conference-name {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.conference-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+/* Badges */
+
+.badge {
+  font-size: 11px;
+  border-radius: var(--radius-pill);
+  padding: 2px 8px;
+  border: 1px solid var(--border-subtle);
+  color: var(--text-muted);
+  background: #ffffff;
+}
+
+.badge-publisher {
+  border-color: var(--accent-border);
+  color: #1d4ed8;
+  background: var(--accent-soft);
+}
+
+.badge-location {
+  border-color: #bbf7d0;
+  color: #166534;
+  background: #ecfdf3;
+}
+
+.badge-rating {
+  border-color: #fbbf24;
+  color: #92400e;
+  background: #fef9c3;
+}
+
+.empty-state {
+  font-size: 13px;
+  color: var(--text-muted);
+  padding: 14px 12px;
+  border-radius: 12px;
+  border: 1px dashed var(--border-subtle);
+  background: var(--bg-muted);
+}
+
+/* Table */
+
+.table-wrapper {
+  margin-top: 8px;
+  border-radius: 12px;
+  border: 1px solid var(--border-subtle);
+  background: #ffffff;
+  overflow: hidden;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.table thead {
+  background: #f3f4f6;
+}
+
+.table th,
+.table td {
+  padding: 7px 10px;
+  text-align: left;
+}
+
+.table th {
+  font-weight: 500;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.table tbody tr:nth-child(even) {
+  background: #f9fafb;
+}
+
+.table tbody tr:nth-child(odd) {
+  background: #ffffff;
+}
+
+.table tbody tr:hover {
+  background: #eef2ff;
+}
+
+.table a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.table a:hover {
+  text-decoration: underline;
+}
+
+/* Chip */
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--border-subtle);
+  font-size: 11px;
+  color: var(--text-muted);
+  background: #ffffff;
+}
