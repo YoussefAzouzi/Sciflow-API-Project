@@ -1,28 +1,58 @@
 from typing import List, Optional
-
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, func, and_
 from sqlalchemy.orm import selectinload
 
 from ..db import get_db
-from ..models import Conference
-from ..schemas import ConferenceCreate, ConferenceRead, EventRead
+from ..models import Conference, User, Rating, Interest
+from ..schemas import ConferenceCreate, ConferenceRead, ConferenceUpdate, EventRead
+from ..auth import get_current_user, get_current_organizer
 
 router = APIRouter(prefix="/conferences", tags=["conferences"])
 
 
-def to_conference_read(conf: Conference, include_events: bool = False) -> ConferenceRead:
-    """
-    Map a Conference ORM object into a ConferenceRead Pydantic model.
+async def build_conference_read(
+    conf: Conference,
+    db: AsyncSession,
+    current_user: Optional[User] = None
+) -> ConferenceRead:
+    rating_result = await db.execute(
+        select(
+            func.avg(Rating.rating),
+            func.avg(Rating.credibility),
+            func.count(Rating.id)
+        ).where(Rating.conference_id == conf.id)
+    )
+    avg_rating, avg_cred, total_ratings = rating_result.one()
 
-    IMPORTANT: Only call this helper on Conference instances that were
-    loaded with selectinload(Conference.papers) if you need paper_count,
-    otherwise accessing conf.papers would trigger a lazy load and cause
-    a MissingGreenlet error in async code.
-    """
+    interests_result = await db.execute(
+        select(func.count(Interest.id)).where(Interest.conference_id == conf.id)
+    )
+    total_interests = interests_result.scalar()
+
+    user_rating = None
+    user_interested = False
+
+    if current_user:
+        user_rating_result = await db.execute(
+            select(Rating.rating).where(
+                and_(Rating.user_id == current_user.id, Rating.conference_id == conf.id)
+            )
+        )
+        user_rating = user_rating_result.scalar_one_or_none()
+
+        user_interest_result = await db.execute(
+            select(Interest.id).where(
+                and_(Interest.user_id == current_user.id, Interest.conference_id == conf.id)
+            )
+        )
+        user_interested = user_interest_result.scalar_one_or_none() is not None
+
     return ConferenceRead(
         id=conf.id,
+        organizer_id=conf.organizer_id,
+        organizer_name=conf.organizer.full_name,
         name=conf.name,
         acronym=conf.acronym,
         series=conf.series,
@@ -34,12 +64,17 @@ def to_conference_read(conf: Conference, include_events: bool = False) -> Confer
         description=conf.description,
         speakers=conf.speakers,
         website=conf.website,
-        rating=conf.rating,
-        credibility=conf.credibility,
         colocated_with=conf.colocated_with,
+        avg_rating=float(avg_rating) if avg_rating else None,
+        avg_credibility=float(avg_cred) if avg_cred else None,
+        total_ratings=total_ratings or 0,
+        total_interests=total_interests or 0,
+        user_rating=user_rating,
+        user_interested=user_interested,
         events=[
             EventRead(
                 id=e.id,
+                conference_id=e.conference_id,
                 title=e.title,
                 type=e.type,
                 date=e.date,
@@ -49,121 +84,114 @@ def to_conference_read(conf: Conference, include_events: bool = False) -> Confer
                 parent_event_id=e.parent_event_id,
             )
             for e in (conf.events or [])
-        ]
-        if include_events
-        else [],
-        paper_count=len(conf.papers or []),
+        ],
+        created_at=conf.created_at,
     )
 
 
 @router.post("", response_model=ConferenceRead, status_code=201)
 async def create_conference(
     payload: ConferenceCreate,
+    current_user: User = Depends(get_current_organizer),
     db: AsyncSession = Depends(get_db),
 ):
-    """
-    Create a new conference.
-
-    Returns a ConferenceRead without touching conf.papers to avoid
-    triggering a lazy load (which would raise MissingGreenlet).
-    paper_count is always 0 on creation.
-    """
-    conf = Conference(**payload.dict())
+    conf = Conference(**payload.dict(), organizer_id=current_user.id)
     db.add(conf)
     await db.commit()
-    await db.refresh(conf)
-
-    return ConferenceRead(
-        id=conf.id,
-        name=conf.name,
-        acronym=conf.acronym,
-        series=conf.series,
-        publisher=conf.publisher,
-        location=conf.location,
-        start_date=conf.start_date,
-        end_date=conf.end_date,
-        topics=conf.topics,
-        description=conf.description,
-        speakers=conf.speakers,
-        website=conf.website,
-        rating=conf.rating,
-        credibility=conf.credibility,
-        colocated_with=conf.colocated_with,
-        events=[],
-        paper_count=0,
+    
+    # Reload with relationships
+    result = await db.execute(
+        select(Conference)
+        .options(selectinload(Conference.organizer), selectinload(Conference.events))
+        .where(Conference.id == conf.id)
     )
+    conf = result.scalar_one()
+    
+    return await build_conference_read(conf, db, current_user)
 
 
 @router.get("", response_model=List[ConferenceRead])
 async def list_conferences(
     publisher: Optional[str] = Query(None),
     min_rating: Optional[float] = Query(None),
-    min_credibility: Optional[float] = Query(None),
     db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user),
 ):
-    """
-    List conferences with optional filters.
+    stmt = select(Conference).options(selectinload(Conference.organizer), selectinload(Conference.events))
 
-    This endpoint stays lightweight and does not eager-load events or papers;
-    paper_count is always 0 here (or you can add a second query if needed).
-    """
-    stmt = select(Conference)
     if publisher:
         stmt = stmt.where(Conference.publisher == publisher)
-    if min_rating is not None:
-        stmt = stmt.where(Conference.rating >= min_rating)
-    if min_credibility is not None:
-        stmt = stmt.where(Conference.credibility >= min_credibility)
 
     result = await db.execute(stmt)
     conferences = result.scalars().all()
 
-    # Do NOT access conf.papers here (would lazy-load).
-    return [
-        ConferenceRead(
-            id=c.id,
-            name=c.name,
-            acronym=c.acronym,
-            series=c.series,
-            publisher=c.publisher,
-            location=c.location,
-            start_date=c.start_date,
-            end_date=c.end_date,
-            topics=c.topics,
-            description=c.description,
-            speakers=c.speakers,
-            website=c.website,
-            rating=c.rating,
-            credibility=c.credibility,
-            colocated_with=c.colocated_with,
-            events=[],
-            paper_count=0,
-        )
-        for c in conferences
-    ]
+    response = []
+    for conf in conferences:
+        conf_read = await build_conference_read(conf, db, current_user)
+        if min_rating and (conf_read.avg_rating is None or conf_read.avg_rating < min_rating):
+            continue
+        response.append(conf_read)
+
+    return response
 
 
 @router.get("/{conference_id}", response_model=ConferenceRead)
 async def get_conference(
     conference_id: int,
     db: AsyncSession = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user),
 ):
-    """
-    Get a single conference with full detail, including events and paper_count.
-
-    Here we eager-load events and papers using selectinload, so accessing
-    conf.papers in to_conference_read is safe.
-    """
     stmt = (
         select(Conference)
-        .options(
-            selectinload(Conference.events),
-            selectinload(Conference.papers),
-        )
+        .options(selectinload(Conference.organizer), selectinload(Conference.events))
         .where(Conference.id == conference_id)
     )
     result = await db.execute(stmt)
     conf = result.scalar_one_or_none()
     if not conf:
         raise HTTPException(status_code=404, detail="Conference not found")
-    return to_conference_read(conf, include_events=True)
+    return await build_conference_read(conf, db, current_user)
+
+
+@router.put("/{conference_id}", response_model=ConferenceRead)
+async def update_conference(
+    conference_id: int,
+    payload: ConferenceUpdate,
+    current_user: User = Depends(get_current_organizer),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(Conference)
+        .options(selectinload(Conference.organizer), selectinload(Conference.events))
+        .where(Conference.id == conference_id)
+    )
+    conf = result.scalar_one_or_none()
+    if not conf:
+        raise HTTPException(status_code=404, detail="Conference not found")
+    if conf.organizer_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    for field, value in payload.dict(exclude_unset=True).items():
+        setattr(conf, field, value)
+
+    await db.commit()
+    await db.refresh(conf)
+    return await build_conference_read(conf, db, current_user)
+
+
+@router.delete("/{conference_id}", status_code=204)
+async def delete_conference(
+    conference_id: int,
+    current_user: User = Depends(get_current_organizer),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(select(Conference).where(Conference.id == conference_id))
+    conf = result.scalar_one_or_none()
+    if not conf:
+        raise HTTPException(status_code=404, detail="Conference not found")
+    if conf.organizer_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    await db.delete(conf)
+    await db.commit()
+    return None

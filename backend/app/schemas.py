@@ -1,6 +1,41 @@
-from datetime import date
+from datetime import date, datetime
 from typing import List, Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr
+from enum import Enum
+
+
+class UserRole(str, Enum):
+    USER = "user"
+    ORGANIZER = "organizer"
+
+
+class UserCreate(BaseModel):
+    email: EmailStr
+    password: str
+    full_name: str
+    role: UserRole
+
+
+class UserLogin(BaseModel):
+    email: EmailStr
+    password: str
+
+
+class UserRead(BaseModel):
+    id: int
+    email: str
+    full_name: str
+    role: UserRole
+    created_at: datetime
+
+    class Config:
+        orm_mode = True
+
+
+class Token(BaseModel):
+    access_token: str
+    token_type: str
+    user: UserRead
 
 
 class EventBase(BaseModel):
@@ -19,9 +54,10 @@ class EventCreate(EventBase):
 
 class EventRead(EventBase):
     id: int
+    conference_id: int
 
     class Config:
-        from_attributes = True
+        orm_mode = True
 
 
 class ConferenceBase(BaseModel):
@@ -33,11 +69,9 @@ class ConferenceBase(BaseModel):
     start_date: Optional[date] = None
     end_date: Optional[date] = None
     topics: Optional[str] = None
-    description: Optional[str] = None    # NEW
-    speakers: Optional[str] = None       # NEW
+    description: Optional[str] = None
+    speakers: Optional[str] = None
     website: Optional[str] = None
-    rating: Optional[float] = None
-    credibility: Optional[float] = None
     colocated_with: Optional[str] = None
 
 
@@ -45,32 +79,66 @@ class ConferenceCreate(ConferenceBase):
     pass
 
 
+class ConferenceUpdate(BaseModel):
+    name: Optional[str] = None
+    acronym: Optional[str] = None
+    series: Optional[str] = None
+    publisher: Optional[str] = None
+    location: Optional[str] = None
+    start_date: Optional[date] = None
+    end_date: Optional[date] = None
+    topics: Optional[str] = None
+    description: Optional[str] = None
+    speakers: Optional[str] = None
+    website: Optional[str] = None
+    colocated_with: Optional[str] = None
+
+
 class ConferenceRead(ConferenceBase):
     id: int
+    organizer_id: int
+    organizer_name: str
+    avg_rating: Optional[float] = None
+    avg_credibility: Optional[float] = None
+    total_ratings: int = 0
+    total_interests: int = 0
+    user_rating: Optional[float] = None
+    user_interested: bool = False
     events: List[EventRead] = []
-    paper_count: int = 0                  # NEW
+    created_at: datetime
 
     class Config:
-        from_attributes = True
+        orm_mode = True
 
 
-class PaperCreateFromSemanticScholar(BaseModel):
-    # conference_id comes from path; no need to repeat here
-    event_id: Optional[int] = None
-    identifiers: list[str]
+class RatingCreate(BaseModel):
+    rating: float
+    credibility: Optional[float] = None
 
 
-class PaperRead(BaseModel):
+class RatingRead(BaseModel):
     id: int
+    user_id: int
     conference_id: int
-    event_id: Optional[int]
-    title: Optional[str]
-    abstract: Optional[str]
-    venue: Optional[str]
-    year: Optional[int]
-    citation_count: Optional[int]
-    open_access_pdf_url: Optional[str]
-    fields_of_study: Optional[str]
+    rating: float
+    credibility: Optional[float]
+    created_at: datetime
 
     class Config:
-        from_attributes = True
+        orm_mode = True
+
+
+class CommentCreate(BaseModel):
+    content: str
+
+
+class CommentRead(BaseModel):
+    id: int
+    user_id: int
+    user_name: str
+    conference_id: int
+    content: str
+    created_at: datetime
+
+    class Config:
+        orm_mode = True

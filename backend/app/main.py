@@ -2,15 +2,14 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .db import engine, Base
-from .routers import conferences_router, events_router, papers_router
+from .routers import conferences, events, auth, ratings, interests, comments, users
 
 app = FastAPI(
-    title="Scientific Conferences Tracker API",
-    description="Tracks scientific conferences, events, and papers with Semantic Scholar enrichment.",
-    version="0.1.0",
+    title="Sciflow API",
+    description="Scientific conference discovery platform",
+    version="2.0.0",
 )
 
-# Allow frontend at localhost:5173 to call the API
 origins = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
@@ -31,6 +30,10 @@ async def on_startup():
         await conn.run_sync(Base.metadata.create_all)
 
 
-app.include_router(conferences_router)
-app.include_router(events_router)
-app.include_router(papers_router)
+app.include_router(auth.router)
+app.include_router(conferences.router)
+app.include_router(events.router)
+app.include_router(ratings.router)
+app.include_router(interests.router)
+app.include_router(comments.router)
+app.include_router(users.router)
