@@ -1,0 +1,535 @@
+
+SCIFLOW API: PROJECT DEVELOPMENT LOG (COMPLETE 173 STEPS)
+
+PHASE 1: PROBLEM DEFINITION & STRATEGY
+
+1. PROMPT: identify the main pain point for researchers looking for conferences
+RESPONSE: It's fragmentation. Calls for papers (CFPs) are scattered across mailing lists, static sites (WikiCFP), and publisher portals. Researchers miss deadlines because there's no single "source of truth" that also links to the actual papers.
+
+2. PROMPT: explain how we are different from google scholar
+RESPONSE: Google Scholar is great for finding *past* papers. Sciflow focuses on the *future*—upcoming conferences, deadlines, and the social signal of "who else is going?" We bridge discovery with planning.
+
+3. PROMPT: define the specific user personas for the app
+RESPONSE: Two core personas: The "Active Submitter" (PhD students/Postdocs looking for CFPs to publish in) and the "Attendee" (Senior researchers looking for high-quality events to network at).
+
+4. PROMPT: list the reasons why organizers would use this platform
+RESPONSE: Visibility. New conferences struggle to get submissions. We give them a platform to claim their event, upload their banner, and directly link their accepted papers to build credibility.
+
+5. PROMPT: decide on the single most important feature for the mvp
+RESPONSE: "One-Click Sync." Finding a conference is one thing; remembering the deadline is another. Integrating with Google Calendar so the abstract submission deadline shows up on their phone is key.
+
+6. PROMPT: check if scraping conference metadata is legal
+RESPONSE: We shouldn't scrape content we don't own (like full PDFs). We'll aggregate public metadata (titles, dates, locations) and surface *links* to the papers. That's fair use.
+
+7. PROMPT: design a system to prevent spam conference listings
+RESPONSE: We need a "Verified Organizer" role. Anyone can view, but only verified accounts can create/edit events. Plus, users can "Rate" conferences, so spam gets downvoted quickly.
+
+8. PROMPT: define the exact inputs and outputs for the search api
+RESPONSE: Input: "Machine Learning" + "Europe" + "July 2026". Output: A list of Conference objects sorted by "Interest Count" so the most popular ones float to the top.
+
+9. PROMPT: investigate if we can pull in real time rss feeds
+RESPONSE: Yes, we can fetch from sources like dev.events or arXiv feeds. We'll need a background worker to parse these XMLs and merge them into our DB without creating duplicates.
+
+10. PROMPT: model the data structure for co located workshops
+RESPONSE: Self-referential relationship. A Conference can have a `parent_id` or a `colocated_with` list pointing to other Conference IDs.
+
+PHASE 2: API ARCHITECTURE & DATA MODELING
+
+11. PROMPT: create the database schema for the conference table
+RESPONSE: Needs: `id`, `name`, `acronym` (e.g., CVPR), `start_date`, `end_date`, `location`, `topics` (array), `url`, and `organizer_id`.
+
+12. PROMPT: add a user model with role support
+RESPONSE: Standard fields: email, password_hash. Plus a `role` enum: "user" (default) or "organizer". And `google_refresh_token` for the calendar feature.
+
+13. PROMPT: design the paper model and link it to the conference
+RESPONSE: `Paper` belongs to `Conference`. Fields: `title`, `authors`, `abstract`, `pdf_url`, `published_at`.
+
+14. PROMPT: standardise the rest api url structure
+RESPONSE: Plural. `GET /conferences`, `POST /conferences`, `GET /conferences/{id}/papers`. Keeps it standard.
+
+15. PROMPT: choose the authentication method for the api
+RESPONSE: OAuth2 with Password Flow (Bearer tokens). It's the FastAPI standard, works great with React, and secure enough for our needs.
+
+16. PROMPT: decide between uuids and integers for primary keys
+RESPONSE: Let's stick to Auto-Increment Integers for now. Easier to debug `conference_id=5` than a long UUID string during dev. We can switch if we scale massively.
+
+17. PROMPT: create a many to many relationship for user interests
+RESPONSE: Yes, a join table `user_interests` linking `user_id` and `conference_id`. Simple toggle logic.
+
+18. PROMPT: add a rating model with a 1 to 5 scale
+RESPONSE: `Rating` model: `user_id`, `conference_id`, `score` (1-5). We'll need an aggregation query to show "Average Rating" on the frontend.
+
+19. PROMPT: design the notification system structure
+RESPONSE: `Notification` model. When an organizer `POST /papers`, we trigger a function to insert a Notification record for every user following that conference.
+
+20. PROMPT: create strict pydantic schemas for validation
+RESPONSE: `ConferenceCreate` should require name and start_date. `ConferenceRead` should include the calculated `average_rating` and `interest_count`.
+
+21. PROMPT: handle optional fields like image urls in the schema
+RESPONSE: Default to `None` in the Pydantic model. On the frontend, if it's null, we show a cool generative placeholder based on the conference topic.
+
+22. PROMPT: implement a fast search endpoint
+RESPONSE: `GET /conferences?q=...`. We'll use SQLAlchemy's `ilike` for case-insensitive partial matching on Title and Acronym.
+
+23. PROMPT: add a database model for comments
+RESPONSE: Simple `Comment` model: `content`, `user_id`, `conference_id`, `created_at`. No nesting for now, just a linear feed.
+
+24. PROMPT: decide how to store timezones in the db
+RESPONSE: Store everything in UTC in the DB. The frontend converts to the user's local browser time.
+
+25. PROMPT: define how the api should handle 404 errors
+RESPONSE: If `get_conference(id)` returns None, raise `HTTPException(status_code=404, detail="Conference not found")`.
+
+PHASE 3: BACKEND IMPLEMENTATION (FastAPI)
+
+26. PROMPT: set up the basic fastapi app structure
+RESPONSE: `app = FastAPI()`. Setup `main.py` and a `routers/` folder. I want this modular from day one.
+
+27. PROMPT: configure the sqlite database connection
+RESPONSE: Yes, `sqlite:///./sciflow.db`. Use `databases` (async) + `SQLAlchemy`. We need `aiosqlite` driver for async/await.
+
+28. PROMPT: build the login route and token generation
+RESPONSE: `POST /token`. Verify email/password. Use `passlib` to verify hash. Return a JWT access token.
+
+29. PROMPT: create the get current user dependency
+RESPONSE: Checks the `Authorization: Bearer ...` header. Decodes JWT. if invalid -> 401. If valid -> returns User object.
+
+30. PROMPT: add a permission check for organizers
+RESPONSE: Wraps `get_current_user`. Checks `if user.role != "organizer": raise 403`.
+
+31. PROMPT: implement the crud endpoints for conferences
+RESPONSE: `POST /conferences` (organizers only). `GET /conferences` (public). `PUT /conferences/{id}` (organizer only, check ownership).
+
+32. PROMPT: add pagination to the conference list endpoint
+RESPONSE: Add `skip` and `limit` query params to `GET /conferences`. Default `limit=20`.
+
+33. PROMPT: write the function to parse the rss feed
+RESPONSE: `xml.etree.ElementTree`. Fetch `https://dev.events/rss.xml`. Map their `<title>` to our `name`.
+
+34. PROMPT: implement logic to merge db and rss results
+RESPONSE: Fetch DB items. Fetch RSS items. Convert RSS items to Pydantic objects. Return `db_list + rss_list`.
+
+35. PROMPT: create a utility to fix the rss date format
+RESPONSE: Need a helper utility `parse_rss_date(date_str)`. `datetime.strptime` is our friend here.
+
+36. PROMPT: integrate the google calendar oauth flow
+RESPONSE: We need `google-auth-oauthlib`. The flow is: User clicks "Sync" -> Redirect to Google -> Google calls back to `/auth/callback` -> We get a refresh token -> Save to User DB.
+
+37. PROMPT: write the code to insert events into the user calendar
+RESPONSE: Use `google-api-python-client`. `service.events().insert(calendarId='primary', body={...})`. Run this when they click "Add to Calendar".
+
+38. PROMPT: create the endpoint for uploading papers
+RESPONSE: `POST /conferences/{id}/papers`. Accepts title and URL. Validates URL format. Checks if user owns the conference.
+
+39. PROMPT: automate notification creation on new paper upload
+RESPONSE: Inside the `create_paper` function, running a query: `SELECT user_id FROM interests WHERE conference_id = ...`. Then bulk insert Notifications for them.
+
+40. PROMPT: ensure users can only rate a conference once
+RESPONSE: If I rate again, it should update my old rating, not create a new one. `session.merge` or check existing -> update/insert.
+
+41. PROMPT: add user rating status to the conference details response
+RESPONSE: In the `ConferenceRead` response, can we include `user_rating`? Yes, if the user is logged in, specific query for that.
+
+42. PROMPT: configure cors to allow the frontend port
+RESPONSE: `CORSMiddleware`. `allow_origins=["http://localhost:5173"]`. `allow_methods=["*"]`.
+
+43. PROMPT: decide how to handle image uploads
+RESPONSE: Let's stick to URLs for now. Or, simplistic `StaticFiles` mounting. `app.mount("/static", ...)` and an upload endpoint that saves bytes to disk.
+
+44. PROMPT: set up secure password hashing
+RESPONSE: `pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")`. Never store plain text.
+
+45. PROMPT: create a route to fetch the current organizers conferences
+RESPONSE: `GET /conferences/mine`. Filter `query(Conference).filter(Conference.organizer_id == current_user.id)`.
+
+46. PROMPT: create a route to fetch the users interested conferences
+RESPONSE: `GET /interests`. Join `Conference` table where `Interest.user_id == current_user.id`.
+
+47. PROMPT: strip the password hash from the user profile response
+RESPONSE: Pydantic `response_model=UserRead`. `UserRead` excludes `hashed_password`.
+
+48. PROMPT: implement a global error handler for clean responses
+RESPONSE: Wrap DB calls in `try...except`. Catch `IntegrityError` (like duplicate email) and raise 400.
+
+49. PROMPT: add a health check route for monitoring
+RESPONSE: `GET /health`. Return `{"status": "ok"}`. Good for deployment checks later.
+
+50. PROMPT: fix the n 1 query problem in the list endpoint
+RESPONSE: Use `options(selectinload(Conference.organizer))`. Eager load related data.
+
+PHASE 4: FRONTEND DEVELOPMENT (React + Vite)
+
+51. PROMPT: initialize the react project with vite
+RESPONSE: `npm create vite@latest frontend -- --template react`. Clean up the boilerplate CSS.
+
+52. PROMPT: define the css strategy for the project
+RESPONSE: Let's go custom CSS with CSS variables for theming. It's lighter and gives us full control over the "Premium" scientific look.
+
+53. PROMPT: configure axios for api requests
+RESPONSE: `axios.create({ baseURL: ... })`. Add an interceptor to automatically inject `Authorization: Bearer <token>` from local storage.
+
+54. PROMPT: create the auth context for global state
+RESPONSE: `AuthContext`. `login()`, `logout()`, `user` object. Wrap the whole `App` in `<AuthProvider>`.
+
+55. PROMPT: build the responsive navbar component
+RESPONSE: Needs to be responsive. "Home", "My Conferences" (if organizer), "My Interests" (if researcher), "Login/Logout".
+
+56. PROMPT: build the home page with the discovery feed
+RESPONSE: A grid of cards. `useStats` hook to fetch data. `useEffect` to trigger search when the query changes.
+
+57. PROMPT: design the conference card component
+RESPONSE: Needs to pop. If there's an image, show it. If not, generated gradient. Title, Date, Rating stars, "Interest" heart button.
+
+58. PROMPT: implement the follow button logic
+RESPONSE: Optimistic UI update. Click -> Turn red immediately -> Send API req. If API fails, revert to grey and toast error.
+
+59. PROMPT: create the conference detail page layout
+RESPONSE: `/conference/:id`. Big hero header. Tabs for "Details", "Papers", "Discussion".
+
+60. PROMPT: build the papers tab UI
+RESPONSE: List of papers. Title, Authors, "Read PDF" button (opens in new tab). If organizer, provide "Add Paper" form here.
+
+61. PROMPT: build the discussion tab UI
+RESPONSE: Simple list of comments. Textarea at top to add new.
+
+62. PROMPT: implement the login and signup forms
+RESPONSE: Centered forms. Glassmorphism effect. Validation feedback (e.g., "Password too short").
+
+63. PROMPT: add role selection to the signup flow
+RESPONSE: Radio buttons? "I am a: Researcher / Event Organizer". Sets the `role` enum in the payload.
+
+64. PROMPT: build the create conference wizard
+RESPONSE: Multi-step wizard? No, huge single form is fine. Name, Dates, Location, Topics.
+
+65. PROMPT: create a chip input component for topics
+RESPONSE: Let's do a "Chip" input. Type "AI", hit enter -> creates a badge. Send as array or CSV string to backend.
+
+66. PROMPT: build the my interests dashboard
+RESPONSE: Similar to Home, but filtered. Maybe a "Calendar View" here later? For now, list view.
+
+67. PROMPT: build the organizer dashboard
+RESPONSE: Table view. Columns: Name, Date, # Papers, # Interests. Actions: Edit, Delete.
+
+68. PROMPT: add the notification bell to the navbar
+RESPONSE: Bell icon in Navbar. Red dot if `unread_count > 0`. Dropdown shows list. Click -> mark read -> go to conference.
+
+69. PROMPT: create an interactive star rating component
+RESPONSE: 5 stars. Hover fills them. Click sets the state. Send `POST /ratings`.
+
+70. PROMPT: add the sync to google button
+RESPONSE: "Add to Calendar". If `user.google_connected` is false, redirect to auth flow. If true, trigger sync.
+
+71. PROMPT: implement protected routes for authenticated pages
+RESPONSE: `<ProtectedRoute>` component. If `!user`, `<Navigate to="/login" />`.
+
+72. PROMPT: add skeleton loaders for data fetching
+RESPONSE: Skeleton loaders. Grey boxes pulsing while data fetches. Better UX than a spinning wheel.
+
+73. PROMPT: set up a global toast notification system
+RESPONSE: Global toast system. `api.interceptors.response.use(..., error => toast.error(error.message))`.
+
+74. PROMPT: debounce the search input to save api calls
+RESPONSE: Don't hit API on every keystroke. `useDebounce(searchTerm, 500ms)`.
+
+75. PROMPT: make the layout mobile responsive
+RESPONSE: Grid becomes 1 column on mobile. Navbar collapses to hamburger menu.
+
+76. PROMPT: add a dark mode toggle
+RESPONSE: `data-theme="dark"` attribute on `<body>`. Toggle in Navbar. Persist to localStorage.
+
+77. PROMPT: add error handling for broken images
+RESPONSE: `img onError={() => setSrc('/default-placeholder.png')}`.
+
+PHASE 5: REFINEMENT & INTEGRATION
+
+78. PROMPT: fix the display of colocated events
+RESPONSE: If a conference has children, show them as "Related Events" sidebar.
+
+79. PROMPT: add a filter to the papers list
+RESPONSE: Add local search/filter within the papers tab. "Filter by author..."
+
+80. PROMPT: format the date strings in the ui
+RESPONSE: Use `Intl.DateTimeFormat`. Display "Feb 20, 2026".
+
+81. PROMPT: clean up the backend router imports
+RESPONSE: Group them. `app.include_router(conferences.router)` etc.
+
+82. PROMPT: write the readme file
+RESPONSE: Instructions for `npm run dev` and `uvicorn app.main:app`.
+
+83. PROMPT: create a dockerfile for the backend
+RESPONSE: Multi-stage build? Or keep it simple. Python 3.9 image. `pip install -r requirements.txt`. `CMD ["uvicorn", ...]`.
+
+84. PROMPT: generate the requirements txt file
+RESPONSE: `pip freeze > requirements.txt`. Remove the local path references.
+
+85. PROMPT: verify the paper submission flow
+RESPONSE: Login as Organizer -> Create Conf -> Add Paper. Login as Researcher -> View Conf -> See Paper. Works.
+
+86. PROMPT: prevent users from spamming ratings
+RESPONSE: Fixed backend logic to UPSERT (update if exists).
+
+87. PROMPT: filter out old rss feed items
+RESPONSE: We filter RSS items by date in the merge logic. `if item.date < now: continue`.
+
+88. PROMPT: audit the user profile response for privacy
+RESPONSE: Checked `UserRead`. Email is included (needed for profile), but mostly harmless. Removed sensitive IDs.
+
+89. PROMPT: optimize the home page performance
+RESPONSE: Implemented Virtualization (React Window) or just pagination. Pagination is safer for backend load.
+
+90. PROMPT: implement a copy to clipboard feature
+RESPONSE: Copies `window.location.href` to clipboard. Toast "Link copied!".
+
+91. PROMPT: design a custom 404 page
+RESPONSE: User visits `/random/url`. Show a nice illustration and "Go Home" button.
+
+92. PROMPT: design a text logo for the header
+RESPONSE: Simple CSS text logo. "SciFlow" with a blue/purple gradient.
+
+93. PROMPT: create the footer component
+RESPONSE: Copyright 2026. Links to "Terms" and "Privacy".
+
+94. PROMPT: add a terms of service checkbox to signup
+RESPONSE: Checkbox "I agree to Terms". Disabled "Sign Up" button until checked.
+
+95. PROMPT: pre fill the edit conference form
+RESPONSE: The `defaultValue` in inputs needs to come from the fetched data. Use `useEffect` to reset form when data arrives.
+
+96. PROMPT: add a delete confirmation modal
+RESPONSE: Scary. Add a confirmation modal. "Are you sure? This will delete all papers too."
+
+97. PROMPT: create an empty state for my conferences
+RESPONSE: "You haven't created any conferences yet. [Create One]" button.
+
+98. PROMPT: create an empty state for my interests
+RESPONSE: "You haven't followed any conferences. Go explore!"
+
+99. PROMPT: create an admin dashboard
+RESPONSE: Maybe later. For now, DB admin is enough.
+
+100. PROMPT: prepare environment variables for production
+RESPONSE: `VITE_API_URL` for frontend. `DATABASE_URL` for backend. `SECRET_KEY` for JWT.
+
+PHASE 6: POLISHING & FINAL TOUCHES
+
+101. PROMPT: rewrite the hero text to be more engaging
+RESPONSE: "Discover the Future of Science. Track conferences, find papers, never miss a beat."
+
+102. PROMPT: add hover effects to the conference cards
+RESPONSE: `transform: scale(1.02)` on hover. Shadow deepens. Makes it feel tactile.
+
+103. PROMPT: center the loading spinner
+RESPONSE: CSS `place-items: center` on the container.
+
+104. PROMPT: style the form validation messages
+RESPONSE: Red-500 for errors. Green-500 for success. Standard semantic colors.
+
+105. PROMPT: add a password strength indicator
+RESPONSE: Simple progress bar. Length > 8 ? +33%. Has number ? +33%. Has Special char ? +33%.
+
+106. PROMPT: custom style the date picker
+RESPONSE: Browser default date picker is okay, but styled poorly. Added some CSS to make it consistent with the theme.
+
+107. PROMPT: add tooltips to action icons
+RESPONSE: Hover over the star -> "Rate this". Hover over heart -> "Follow".
+
+108. PROMPT: decide between load more and infinite scroll
+RESPONSE: "Load More" button is better for footer accessibility.
+
+109. PROMPT: check contrast ratios for accessibility
+RESPONSE: Dark mode text was too grey. Lightened it to `#e5e7eb` for better readability.
+
+110. PROMPT: generate a favicon
+RESPONSE: Generated a little beaker icon.
+
+111. PROMPT: choose a font family
+RESPONSE: "Inter" font family. Clean, modern, scientific.
+
+112. PROMPT: standardize the spacing units
+RESPONSE: Using REM units everywhere. 1rem = 16px. Margins are multiples of 0.5rem.
+
+113. PROMPT: remove console logs from the code
+RESPONSE: Removed `console.log('here')` debugging leftovers.
+
+114. PROMPT: investigate double fetches in dev mode
+RESPONSE: `React.Strict` mode causes double invoke in dev. This is normal, but verified it's single in production build.
+
+115. PROMPT: add database indexes for performance
+RESPONSE: Added index on `conference_id` in Papers table for fast lookups.
+
+116. PROMPT: add a cta buffer to the landing page
+RESPONSE: Added to the bottom of the landing page.
+
+117. PROMPT: add basic seo meta tags
+RESPONSE: `<meta name="description" content="...">`. Helmet in React.
+
+118. PROMPT: configure open graph tags for sharing
+RESPONSE: Added OpenGraph metatags so it looks good on Twitter/Slack.
+
+119. PROMPT: fix the mobile menu click behavior
+RESPONSE: When I click a link in the mobile menu, it should close the menu. Added that logic.
+
+120. PROMPT: add a back to top button
+RESPONSE: Floats in bottom right when scrolled down.
+
+121. PROMPT: implement an error boundary component
+RESPONSE: "Something went wrong" full page error if the whole app explodes.
+
+122. PROMPT: implement draft saving for forms
+RESPONSE: LocalStorage save. If I reload, form data persists.
+
+123. PROMPT: add page transition animations
+RESPONSE: Framer Motion `<AnimatePresence>`. Fade in/out between routes.
+
+124. PROMPT: distinguish external links visually
+RESPONSE: Visually distinguish links that go to other sites (Papers) vs internal links.
+
+125. PROMPT: allow users to edit their profile
+RESPONSE: Allow user to update Name/Email.
+
+126. PROMPT: implement the logout logic
+RESPONSE: Clear local storage, redirect to Home.
+
+127. PROMPT: handle token expiration gracefully
+RESPONSE: If API returns 401, auto-logout and redirect to login.
+
+128. PROMPT: add a forgot password placeholder
+RESPONSE: Just a placeholder for now. "Contact Admin".
+
+129. PROMPT: handle empty search results
+RESPONSE: "No conferences found matching 'xyz'. Try a broader term."
+
+130. PROMPT: support markdown in conference descriptions
+RESPONSE: Markdown support. `react-markdown` package. Allows bold/lists in descriptions.
+
+131. PROMPT: add google analytics tracking
+RESPONSE: Google Analytics basic tracking script added to `index.html`.
+
+132. PROMPT: fix the rating update delay bug
+RESPONSE: Invalidate the cache/refetch the conference details after rating submission.
+
+133. PROMPT: add a verified badge for organizers
+RESPONSE: Gold checkmark next to organizer names.
+
+134. PROMPT: enable info level logging
+RESPONSE: `logging.INFO` for all requests. Helps debug "why did this 400?".
+
+135. PROMPT: update dependencies to latest versions
+RESPONSE: Bump `fastapi` to latest patch version.
+
+136. PROMPT: disable actions for guest users
+RESPONSE: Hide "Rate" and "Follow" buttons if not logged in. Show "Login to interact" tooltip.
+
+137. PROMPT: validate paper urls
+RESPONSE: Ensure URL starts with `http://` or `https://`.
+
+138. PROMPT: add a new badge for recent conferences
+RESPONSE: If `created_at` < 7 days ago, show "NEW" badge.
+
+139. PROMPT: add a skeleton screen for details page
+RESPONSE: Layout match (Header block, Body text block) to reduce layout shift.
+
+140. PROMPT: check for sql injection vulnerabilities
+RESPONSE: SQLAlchemy handles parameter binding. We are safe.
+
+141. PROMPT: implement rate limiting for login
+RESPONSE: Add simple limiter to Login route. 5 attempts per minute.
+
+142. PROMPT: add a report conference button
+RESPONSE: Mailto link to support email with conference ID in subject.
+
+143. PROMPT: generate ics files for calendar export
+RESPONSE: Alternative to Google Sync. Generate .ics string on client side.
+
+144. PROMPT: improve the visual hierarchy of the page
+RESPONSE: H1 for Title, H2 for Sections. Text-gray-500 for secondary info.
+
+145. PROMPT: add a trending sort option
+RESPONSE: Sort by number of interests descending.
+
+146. PROMPT: make the navbar sticky
+RESPONSE: Navbar stays fixed at top with blur backdrop.
+
+147. PROMPT: fix z index layout issues
+RESPONSE: Set Modal z-index to 50, Navbar to 40.
+
+148. PROMPT: add fields for keynote speakers
+RESPONSE: Added text field for "Keynote Speakers" to Conference model.
+
+149. PROMPT: add a series field to group conferences
+RESPONSE: To group "CVPR 2025" and "CVPR 2026".
+
+150. PROMPT: perform a smoke test for deployment
+RESPONSE: Does the build pass? Yes.
+
+PHASE 7: FINAL DEPLOYMENT PREP (Service Integration)
+
+151. PROMPT: create the render blueprint file
+RESPONSE: Good call. Blueprint file. Backend service (Python), Frontend service (Static), Database (Postgres).
+
+152. PROMPT: set the backend start command
+RESPONSE: `gunicorn app.main:app -w 4 -k uvicorn.workers.UvicornWorker`. Production grade server.
+
+153. PROMPT: map the environment variables in render
+RESPONSE: Map `DATABASE_URL` from the db service. `FRONTEND_URL` from static site.
+
+154. PROMPT: set the frontend build command
+RESPONSE: `npm install && npm run build`. Serves from `dist/`.
+
+155. PROMPT: update the db connection string for postgres
+RESPONSE: SQLite works locally, but Render gives us `postgres://`. Need to replace with `postgresql+asyncpg://` logic.
+
+156. PROMPT: add production dependencies
+RESPONSE: And `asyncpg` for the driver. Essential for prod.
+
+157. PROMPT: configure the api url for production
+RESPONSE: `import.meta.env.VITE_API_URL`. In `render.yaml`, set this to the backend service URL.
+
+158. PROMPT: whitelist the production url in cors
+RESPONSE: Allow the `FRONTEND_URL` env var in the origin list.
+
+159. PROMPT: test the docker build locally
+RESPONSE: `docker build`. Check image size.
+
+160. PROMPT: set the node engine version
+RESPONSE: Specify Node version >= 18.
+
+161. PROMPT: add a procfile for heroku compatibility
+RESPONSE: Not needed for Render if we use `render.yaml`, but good practice for Heroku.
+
+162. PROMPT: freeze the requirements versions
+RESPONSE: Freeze exact versions to ensure reproducibility.
+
+163. PROMPT: verify clipboard functionality over https
+RESPONSE: Navigator API requires HTTPS. Render provides SSL by default, so we're good.
+
+164. PROMPT: decide on database migration strategy
+RESPONSE: Run `alembic upgrade head`? Or just `Base.metadata.create_all` on startup. For this MVP, startup create is fine.
+
+165. PROMPT: design a maintenance mode page
+RESPONSE: If backend is down, frontend shows "System upgrading".
+
+166. PROMPT: configure asset compression
+RESPONSE: Vite does minification. `gzipped` assets.
+
+167. PROMPT: configure cache busting
+RESPONSE: Vite appends usage hash to filenames `index.a4b2.js`. Browser caching won't show stale code.
+
+168. PROMPT: perform user acceptance testing
+RESPONSE: Walkthrough the whole "Researcher Journey". Search -> Filter -> Click -> Read Paper. Feels smooth.
+
+169. PROMPT: test the organizer workflow
+RESPONSE: Login -> Dashboard -> Edit Conference -> Save. Updates reflected immediately.
+
+170. PROMPT: check mobile usability
+RESPONSE: Hamburger menu works. Tap targets are big enough.
+
+171. PROMPT: update the documentation
+RESPONSE: Added "Deployment" section to README.
+
+172. PROMPT: generate the class diagram
+RESPONSE: User asked for a UML diagram. I'll read `models.py` and generate a Mermaid chart.
+
+173. PROMPT: launch the verified system
+RESPONSE: All systems go. Codebase clean. Deployment config ready. Sciflow V2 is live.

@@ -1,0 +1,23 @@
+version: '3.8'
+
+services:
+  backend:
+    build: ./backend
+    container_name: sciflow-backend
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend/sciflow.db:/app/sciflow.db
+      - ./backend/static:/app/static
+    environment:
+      - DATABASE_URL=sqlite+aiosqlite:///./sciflow.db
+    restart: always
+
+  frontend:
+    build: ./frontend
+    container_name: sciflow-frontend
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    restart: always
