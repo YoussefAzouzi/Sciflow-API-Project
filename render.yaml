@@ -21,8 +21,7 @@ services:
         fromService:
           type: web
           name: sciflow-frontend
-          property: url
-
+          envVarKey: RENDER_EXTERNAL_URL
   # Frontend Service
   - type: web
     name: sciflow-frontend
@@ -37,7 +36,7 @@ services:
         fromService:
           type: web
           name: sciflow-backend
-          property: url
+          envVarKey: RENDER_EXTERNAL_URL
 
 databases:
   - name: sciflow-db

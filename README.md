@@ -86,5 +86,30 @@ Sciflow is a comprehensive scientific conference discovery platform designed to 
 - `POST /google/conferences/{id}/add`: Sync event to Google Calendar.
 - `GET /notifications`: View personal alerts for tracked events.
 
+## 🚀 Deployment (Render)
+
+This project includes a `render.yaml` Blueprint for easy deployment on [Render](https://render.com).
+
+### Prerequisites
+- A GitHub repository containing this code.
+- A Render account.
+
+### Steps
+1. Push your code to GitHub.
+2. Go to your Render Dashboard and click **New +** -> **Blueprint**.
+3. Connect your repository.
+4. Render will automatically detect the `render.yaml` file and configure:
+   - **sciflow-backend**: The Python FastAPI service.
+   - **sciflow-frontend**: The React static site.
+   - **sciflow-db**: The PostgreSQL database.
+5. Click **Apply**.
+6. Once deployed, Render will provide a public URL for your frontend.
+
+### Environment Variables
+The `render.yaml` automatically sets up:
+- `DATABASE_URL`: Connection string for the managed PostgreSQL.
+- `FRONTEND_URL`: The URL of your deployed frontend.
+- `VITE_API_URL`: The URL of your deployed backend.
+
 ## 📝 Design Philosophy
 The project emphasizes **Data Integrity** and **Developer Experience**. By using FastAPI's automatic documentation (Swagger) and Pydantic's strict typing, the API ensures that frontend developers have a robust and predictable contract to build upon. The UI avoids placeholders, using dynamic image generation and real-time community engagement stats to provide a premium feel.
