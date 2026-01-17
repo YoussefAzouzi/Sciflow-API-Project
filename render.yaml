@@ -3,6 +3,7 @@ services:
   - type: web
     name: sciflow-backend
     env: python
+    plan: free
     region: frankfurt
     buildCommand: |
       cd backend
@@ -26,6 +27,7 @@ services:
   - type: web
     name: sciflow-frontend
     env: static
+    plan: free
     buildCommand: |
       cd frontend
       npm install
