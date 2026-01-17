@@ -30,13 +30,11 @@ async def create_or_update_rating(
 
     if rating:
         rating.rating = payload.rating
-        rating.credibility = payload.credibility
     else:
         rating = Rating(
             user_id=current_user.id,
             conference_id=conference_id,
             rating=payload.rating,
-            credibility=payload.credibility,
         )
         db.add(rating)
 

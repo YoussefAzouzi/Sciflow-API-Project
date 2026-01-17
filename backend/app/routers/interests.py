@@ -65,7 +65,7 @@ async def get_my_interests(
     result = await db.execute(
         select(Conference)
         .join(Interest)
-        .options(selectinload(Conference.organizer), selectinload(Conference.events))
+        .options(selectinload(Conference.organizer), selectinload(Conference.papers))
         .where(Interest.user_id == current_user.id)
     )
     conferences = result.scalars().all()

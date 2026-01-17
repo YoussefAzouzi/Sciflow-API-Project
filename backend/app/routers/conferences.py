@@ -1,15 +1,36 @@
 from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Form
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, and_
 from sqlalchemy.orm import selectinload
+import uuid
+import os
+import shutil
 
 from ..db import get_db
-from ..models import Conference, User, Rating, Interest
-from ..schemas import ConferenceCreate, ConferenceRead, ConferenceUpdate, EventRead
-from ..auth import get_current_user, get_current_organizer
+from ..models import Conference, User, Rating, Interest, Notification, Paper
+from ..schemas import ConferenceCreate, ConferenceRead, ConferenceUpdate, PaperRead, PaperCreate
+from ..auth import get_current_user, get_current_organizer, get_current_user_optional
+
+from .dev_events import fetch_dev_events
+import httpx
+import asyncio
 
 router = APIRouter(prefix="/conferences", tags=["conferences"])
+
+
+
+def parse_colocated(text: Optional[str]) -> Optional[list]:
+    if not text:
+        return None
+    parts = [p.strip() for p in text.split(",") if p.strip()]
+    return parts or None
+
+
+def serialize_colocated(values: Optional[list]) -> Optional[str]:
+    if not values:
+        return None
+    return ", ".join(values)
 
 
 async def build_conference_read(
@@ -20,11 +41,10 @@ async def build_conference_read(
     rating_result = await db.execute(
         select(
             func.avg(Rating.rating),
-            func.avg(Rating.credibility),
             func.count(Rating.id)
         ).where(Rating.conference_id == conf.id)
     )
-    avg_rating, avg_cred, total_ratings = rating_result.one()
+    avg_rating, total_ratings = rating_result.one()
 
     interests_result = await db.execute(
         select(func.count(Interest.id)).where(Interest.conference_id == conf.id)
@@ -52,7 +72,7 @@ async def build_conference_read(
     return ConferenceRead(
         id=conf.id,
         organizer_id=conf.organizer_id,
-        organizer_name=conf.organizer.full_name,
+        organizer_name=conf.organizer.full_name if conf.organizer else "Unknown",
         name=conf.name,
         acronym=conf.acronym,
         series=conf.series,
@@ -64,29 +84,30 @@ async def build_conference_read(
         description=conf.description,
         speakers=conf.speakers,
         website=conf.website,
-        colocated_with=conf.colocated_with,
+        image_url=conf.image_url,
+        colocated_with=parse_colocated(conf.colocated_with),
         avg_rating=float(avg_rating) if avg_rating else None,
-        avg_credibility=float(avg_cred) if avg_cred else None,
+        rating=float(avg_rating) if avg_rating else None,
         total_ratings=total_ratings or 0,
         total_interests=total_interests or 0,
         user_rating=user_rating,
         user_interested=user_interested,
-        events=[
-            EventRead(
-                id=e.id,
-                conference_id=e.conference_id,
-                title=e.title,
-                type=e.type,
-                date=e.date,
-                time=e.time,
-                speakers=e.speakers,
-                description=e.description,
-                parent_event_id=e.parent_event_id,
+
+        papers=[
+            PaperRead(
+                id=p.id,
+                conference_id=p.conference_id,
+                title=p.title,
+                url=p.url,
+                created_at=p.created_at
             )
-            for e in (conf.events or [])
+            for p in (conf.papers or [])
         ],
         created_at=conf.created_at,
+        source="dev.events" if conf.is_external else "sciflow",
+        is_external=conf.is_external or False
     )
+
 
 
 @router.post("", response_model=ConferenceRead, status_code=201)
@@ -95,18 +116,50 @@ async def create_conference(
     current_user: User = Depends(get_current_organizer),
     db: AsyncSession = Depends(get_db),
 ):
-    conf = Conference(**payload.dict(), organizer_id=current_user.id)
+    data = payload.dict()
+    colocated = serialize_colocated(data.pop("colocated_with", None))
+    conf = Conference(
+        **data,
+        colocated_with=colocated,
+        organizer_id=current_user.id
+    )
     db.add(conf)
     await db.commit()
-    
-    # Reload with relationships
+
     result = await db.execute(
         select(Conference)
-        .options(selectinload(Conference.organizer), selectinload(Conference.events))
+        .options(selectinload(Conference.organizer), selectinload(Conference.papers))
         .where(Conference.id == conf.id)
     )
     conf = result.scalar_one()
+
+    # Create notifications for all users
+    user_result = await db.execute(select(User.id))
+    user_ids = user_result.scalars().all()
     
+    for uid in user_ids:
+        # Don't notify the organizer who created it (optional, but cleaner)
+        if uid == current_user.id:
+            continue
+            
+        notif = Notification(
+            user_id=uid,
+            title="New Conference Posted!",
+            content=f"'{conf.name}' has just been added. Check it out!",
+            conference_id=conf.id
+        )
+        db.add(notif)
+    
+    await db.commit()
+
+    # Re-fetch after commit to avoid expired/detached object issues
+    result = await db.execute(
+        select(Conference)
+        .options(selectinload(Conference.organizer), selectinload(Conference.papers))
+        .where(Conference.id == conf.id)
+    )
+    conf = result.scalar_one()
+
     return await build_conference_read(conf, db, current_user)
 
 
@@ -115,9 +168,12 @@ async def list_conferences(
     publisher: Optional[str] = Query(None),
     min_rating: Optional[float] = Query(None),
     db: AsyncSession = Depends(get_db),
-    current_user: Optional[User] = Depends(get_current_user),
+    current_user: Optional[User] = Depends(get_current_user_optional),
 ):
-    stmt = select(Conference).options(selectinload(Conference.organizer), selectinload(Conference.events))
+    stmt = select(Conference).options(
+        selectinload(Conference.organizer), 
+        selectinload(Conference.papers)
+    )
 
     if publisher:
         stmt = stmt.where(Conference.publisher == publisher)
@@ -132,6 +188,14 @@ async def list_conferences(
             continue
         response.append(conf_read)
 
+    # Merge external conferences from dev.events
+    if not publisher and not min_rating:
+        external_confs = await fetch_dev_events()
+        existing_websites = {c.website for c in response if c.website}
+        for ext in external_confs:
+            if ext.website not in existing_websites:
+                response.append(ext)
+
     return response
 
 
@@ -139,21 +203,50 @@ async def list_conferences(
 async def get_conference(
     conference_id: int,
     db: AsyncSession = Depends(get_db),
-    current_user: Optional[User] = Depends(get_current_user),
+    current_user: Optional[User] = Depends(get_current_user_optional),
 ):
     stmt = (
         select(Conference)
-        .options(selectinload(Conference.organizer), selectinload(Conference.events))
+        .options(selectinload(Conference.organizer), selectinload(Conference.papers))
         .where(Conference.id == conference_id)
     )
     result = await db.execute(stmt)
     conf = result.scalar_one_or_none()
+    
     if not conf:
-        raise HTTPException(status_code=404, detail="Conference not found")
+        # Check if it's an external conference from dev.events RSS
+        external_confs = await fetch_dev_events()
+        target = next((c for c in external_confs if c.id == conference_id), None)
+        if target:
+            # Create a local record so users can interact with it
+            new_conf = Conference(
+                name=target.name,
+                description=target.description,
+                location=target.location,
+                start_date=target.start_date,
+                website=target.website,
+                is_external=True,
+                organizer_id=None
+            )
+            db.add(new_conf)
+            await db.commit()
+            await db.refresh(new_conf)
+            
+            # Re-fetch to get relationships and full data
+            stmt = (
+                select(Conference)
+                .options(selectinload(Conference.organizer), selectinload(Conference.papers))
+                .where(Conference.id == new_conf.id)
+            )
+            result = await db.execute(stmt)
+            conf = result.scalar_one()
+        else:
+            raise HTTPException(status_code=404, detail="Conference not found")
+            
     return await build_conference_read(conf, db, current_user)
 
 
-@router.put("/{conference_id}", response_model=ConferenceRead)
+@router.patch("/{conference_id}", response_model=ConferenceRead)
 async def update_conference(
     conference_id: int,
     payload: ConferenceUpdate,
@@ -162,7 +255,7 @@ async def update_conference(
 ):
     result = await db.execute(
         select(Conference)
-        .options(selectinload(Conference.organizer), selectinload(Conference.events))
+        .options(selectinload(Conference.organizer), selectinload(Conference.papers))
         .where(Conference.id == conference_id)
     )
     conf = result.scalar_one_or_none()
@@ -171,11 +264,23 @@ async def update_conference(
     if conf.organizer_id != current_user.id:
         raise HTTPException(status_code=403, detail="Not authorized")
 
-    for field, value in payload.dict(exclude_unset=True).items():
+    data = payload.dict(exclude_unset=True)
+    if "colocated_with" in data:
+        conf.colocated_with = serialize_colocated(data.pop("colocated_with"))
+
+    for field, value in data.items():
         setattr(conf, field, value)
 
     await db.commit()
-    await db.refresh(conf)
+
+    # Re-fetch after commit to avoid expired/detached object issues
+    result = await db.execute(
+        select(Conference)
+        .options(selectinload(Conference.organizer), selectinload(Conference.papers))
+        .where(Conference.id == conf.id)
+    )
+    conf = result.scalar_one()
+
     return await build_conference_read(conf, db, current_user)
 
 
@@ -195,3 +300,51 @@ async def delete_conference(
     await db.delete(conf)
     await db.commit()
     return None
+
+
+@router.post("/{conference_id}/papers", response_model=PaperRead)
+async def add_paper(
+    conference_id: int,
+    payload: PaperCreate,
+    current_user: User = Depends(get_current_organizer),
+    db: AsyncSession = Depends(get_db)
+):
+    # Check conference and ownership
+    result = await db.execute(select(Conference).where(Conference.id == conference_id))
+    conf = result.scalar_one_or_none()
+    if not conf:
+        raise HTTPException(status_code=404, detail="Conference not found")
+    if conf.organizer_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    paper = Paper(
+        conference_id=conference_id,
+        title=payload.title,
+        url=payload.url
+    )
+    db.add(paper)
+    
+    # Notify users about new paper
+    user_result = await db.execute(select(User.id))
+    user_ids = user_result.scalars().all()
+    for uid in user_ids:
+        if uid == current_user.id:
+            continue
+        notif = Notification(
+            user_id=uid,
+            title="New Research Paper Added",
+            content=f"A new paper '{payload.title}' has been added to '{conf.name}'.",
+            conference_id=conf.id
+        )
+        db.add(notif)
+        
+    await db.commit()
+    await db.refresh(paper)
+
+    return PaperRead(
+        id=paper.id,
+        conference_id=paper.conference_id,
+        title=paper.title,
+        url=paper.url,
+        created_at=paper.created_at
+    )

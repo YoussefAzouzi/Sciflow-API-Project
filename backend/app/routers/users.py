@@ -25,7 +25,7 @@ async def get_my_conferences(
 ):
     result = await db.execute(
         select(Conference)
-        .options(selectinload(Conference.organizer), selectinload(Conference.events))
+        .options(selectinload(Conference.organizer), selectinload(Conference.papers))
         .where(Conference.organizer_id == current_user.id)
     )
     conferences = result.scalars().all()

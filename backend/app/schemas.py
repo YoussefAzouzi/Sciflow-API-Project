@@ -38,26 +38,7 @@ class Token(BaseModel):
     user: UserRead
 
 
-class EventBase(BaseModel):
-    title: str
-    type: str
-    date: Optional[date] = None
-    time: Optional[str] = None
-    speakers: Optional[str] = None
-    description: Optional[str] = None
-    parent_event_id: Optional[int] = None
 
-
-class EventCreate(EventBase):
-    pass
-
-
-class EventRead(EventBase):
-    id: int
-    conference_id: int
-
-    class Config:
-        orm_mode = True
 
 
 class ConferenceBase(BaseModel):
@@ -72,7 +53,9 @@ class ConferenceBase(BaseModel):
     description: Optional[str] = None
     speakers: Optional[str] = None
     website: Optional[str] = None
-    colocated_with: Optional[str] = None
+    # colocated_with stored internally as text, exposed as list
+    colocated_with: Optional[List[str]] = None
+    image_url: Optional[str] = None
 
 
 class ConferenceCreate(ConferenceBase):
@@ -91,21 +74,26 @@ class ConferenceUpdate(BaseModel):
     description: Optional[str] = None
     speakers: Optional[str] = None
     website: Optional[str] = None
-    colocated_with: Optional[str] = None
+    colocated_with: Optional[List[str]] = None
+    image_url: Optional[str] = None
 
 
 class ConferenceRead(ConferenceBase):
     id: int
-    organizer_id: int
-    organizer_name: str
+    organizer_id: Optional[int] = None
+    organizer_name: Optional[str] = None
     avg_rating: Optional[float] = None
-    avg_credibility: Optional[float] = None
+    rating: Optional[float] = None
     total_ratings: int = 0
     total_interests: int = 0
     user_rating: Optional[float] = None
     user_interested: bool = False
-    events: List[EventRead] = []
+
+    papers: List["PaperRead"] = []
     created_at: datetime
+    source: str = "sciflow"
+    is_external: bool = False
+
 
     class Config:
         orm_mode = True
@@ -113,7 +101,6 @@ class ConferenceRead(ConferenceBase):
 
 class RatingCreate(BaseModel):
     rating: float
-    credibility: Optional[float] = None
 
 
 class RatingRead(BaseModel):
@@ -121,7 +108,6 @@ class RatingRead(BaseModel):
     user_id: int
     conference_id: int
     rating: float
-    credibility: Optional[float]
     created_at: datetime
 
     class Config:
@@ -142,3 +128,35 @@ class CommentRead(BaseModel):
 
     class Config:
         orm_mode = True
+
+
+class NotificationRead(BaseModel):
+    id: int
+    user_id: int
+    title: str
+    content: str
+    conference_id: Optional[int] = None
+    is_read: bool
+    created_at: datetime
+
+    class Config:
+        orm_mode = True
+
+
+class PaperCreate(BaseModel):
+    title: str
+    url: str
+
+
+class PaperRead(BaseModel):
+    id: int
+    conference_id: int
+    title: str
+    url: str
+    created_at: datetime
+
+    class Config:
+        orm_mode = True
+
+
+ConferenceRead.update_forward_refs()

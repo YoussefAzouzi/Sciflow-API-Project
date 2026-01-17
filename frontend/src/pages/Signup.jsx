@@ -1,18 +1,20 @@
 import { useState } from 'react'
-import { useNavigate, Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
+import { motion } from 'framer-motion'
 import { useAuth } from '../context/AuthContext'
+import api from '../services/api'
 
 function Signup() {
+  const navigate = useNavigate()
+  const { login } = useAuth()
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
   const [formData, setFormData] = useState({
     email: '',
     password: '',
     full_name: '',
-    role: 'user',
+    role: 'user', // Default to 'user', user can toggle to 'organizer'
   })
-  const [error, setError] = useState('')
-  const [loading, setLoading] = useState(false)
-  const { signup } = useAuth()
-  const navigate = useNavigate()
 
   const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value })
@@ -20,84 +22,80 @@ function Signup() {
 
   const handleSubmit = async (e) => {
     e.preventDefault()
-    setError('')
     setLoading(true)
-
+    setError('')
     try {
-      await signup(
-        formData.email,
-        formData.password,
-        formData.full_name,
-        formData.role
-      )
-      navigate('/conferences')
+      const res = await api.post('/auth/register', formData)
+      login(res.data.user, res.data.access_token)
+      navigate('/')
     } catch (err) {
-      // Handle validation errors properly
-      if (err.response?.data?.detail) {
-        if (Array.isArray(err.response.data.detail)) {
-          setError(err.response.data.detail.map(e => e.msg).join(', '))
-        } else {
-          setError(err.response.data.detail)
-        }
-      } else {
-        setError('Signup failed. Please try again.')
-      }
-      console.error('Signup error:', err.response?.data)
+      setError(err.response?.data?.detail || 'Registration failed')
     } finally {
       setLoading(false)
     }
   }
 
   return (
-    <div className="form-container">
-      <h2>Sign Up</h2>
-      {error && <div className="error">{error}</div>}
-      <form onSubmit={handleSubmit}>
-        <div className="form-group">
-          <label>Full Name</label>
-          <input
-            type="text"
-            name="full_name"
-            value={formData.full_name}
-            onChange={handleChange}
-            required
-          />
+    <div className="hero-gradient" style={{ minHeight: '90vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '40px 20px' }}>
+      <motion.div
+        initial={{ opacity: 0, scale: 0.9 }}
+        animate={{ opacity: 1, scale: 1 }}
+        transition={{ duration: 0.5 }}
+        className="card"
+        style={{ width: '100%', maxWidth: '440px', padding: '48px 40px', background: 'var(--surface)', border: '1px solid var(--glass-border)' }}
+      >
+        <div style={{ textAlign: 'center', marginBottom: '32px' }}>
+          <h1 style={{ fontSize: '28px', fontWeight: 800, color: 'white', letterSpacing: '-0.02em' }}>Join Sciflow</h1>
+          <p style={{ color: 'var(--text-secondary)', fontSize: '15px', marginTop: '4px' }}>Create your academic profile to track conferences</p>
         </div>
-        <div className="form-group">
-          <label>Email</label>
-          <input
-            type="email"
-            name="email"
-            value={formData.email}
-            onChange={handleChange}
-            required
-          />
-        </div>
-        <div className="form-group">
-          <label>Password</label>
-          <input
-            type="password"
-            name="password"
-            value={formData.password}
-            onChange={handleChange}
-            required
-            minLength={6}
-          />
-        </div>
-        <div className="form-group">
-          <label>Role</label>
-          <select name="role" value={formData.role} onChange={handleChange}>
-            <option value="user">User</option>
-            <option value="organizer">Organizer</option>
-          </select>
-        </div>
-        <button type="submit" className="btn btn-primary" disabled={loading}>
-          {loading ? 'Creating account...' : 'Sign Up'}
-        </button>
-      </form>
-      <p style={{ marginTop: '1rem' }}>
-        Already have an account? <Link to="/login">Login</Link>
-      </p>
+
+        {error && <div className="error-message">{error}</div>}
+
+        <form onSubmit={handleSubmit}>
+          <div className="form-group">
+            <label>Full Name</label>
+            <input name="full_name" value={formData.full_name} onChange={handleChange} placeholder="Dr. Jane Doe" required />
+          </div>
+          <div className="form-group">
+            <label>Email Address</label>
+            <input type="email" name="email" value={formData.email} onChange={handleChange} placeholder="jane@university.edu" required />
+          </div>
+          <div className="form-group">
+            <label>Password</label>
+            <input type="password" name="password" value={formData.password} onChange={handleChange} placeholder="••••••••" required />
+          </div>
+
+          <div className="form-group">
+            <label>I am an...</label>
+            <div style={{ display: 'flex', gap: '12px', marginTop: '8px' }}>
+              <button
+                type="button"
+                onClick={() => setFormData({ ...formData, role: 'user' })}
+                className={`btn ${formData.role === 'user' ? 'btn-primary' : 'btn-secondary'}`}
+                style={{ flex: 1, padding: '10px', fontSize: '13px' }}
+              >
+                Researcher
+              </button>
+              <button
+                type="button"
+                onClick={() => setFormData({ ...formData, role: 'organizer' })}
+                className={`btn ${formData.role === 'organizer' ? 'btn-primary' : 'btn-secondary'}`}
+                style={{ flex: 1, padding: '10px', fontSize: '13px' }}
+              >
+                Organizer
+              </button>
+            </div>
+          </div>
+
+          <button type="submit" disabled={loading} className="btn btn-primary" style={{ width: '100%', padding: '14px', fontSize: '16px', marginTop: '20px' }}>
+            {loading ? 'Creating Account...' : 'Get Started'}
+          </button>
+        </form>
+
+        <p style={{ textAlign: 'center', marginTop: '32px', fontSize: '14px', color: 'var(--text-muted)' }}>
+          Already have an account? <Link to="/login" style={{ color: 'var(--primary)', fontWeight: 700 }}>Sign In</Link>
+        </p>
+      </motion.div>
     </div>
   )
 }

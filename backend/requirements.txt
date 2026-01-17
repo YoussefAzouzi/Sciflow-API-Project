@@ -7,3 +7,7 @@ httpx==0.26.0
 python-multipart==0.0.6
 pyjwt==2.8.0
 passlib==1.7.4
+google-auth-oauthlib==1.2.0
+google-api-python-client==2.115.0
+requests==2.31.0
+aiofiles==24.1.0

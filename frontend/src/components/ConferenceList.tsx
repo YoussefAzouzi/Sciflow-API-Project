@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { fetchConferences, Conference } from "../api/conferences";
+import { motion } from "framer-motion";
 
 type SortOption = "name" | "rating_desc";
 
@@ -9,18 +10,14 @@ export default function ConferenceList() {
   const [sortBy, setSortBy] = useState<SortOption>("rating_desc");
   const [filterPublisher, setFilterPublisher] = useState<string>("");
   const [filterMinRating, setFilterMinRating] = useState<string>("");
-  const [filterMinCred, setFilterMinCred] = useState<string>("");
 
   async function loadConferences() {
     const min_rating =
       filterMinRating.trim() === "" ? undefined : Number(filterMinRating);
-    const min_cred =
-      filterMinCred.trim() === "" ? undefined : Number(filterMinCred);
 
     const data = await fetchConferences({
       publisher: filterPublisher || undefined,
       min_rating: min_rating,
-      min_credibility: min_cred,
     });
 
     let sorted = [...data];
@@ -37,122 +34,86 @@ export default function ConferenceList() {
 
   useEffect(() => {
     loadConferences().catch(console.error);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handleApplyFilters = () => {
     loadConferences().catch(console.error);
   };
 
-  const formatDates = (start?: string | null, end?: string | null) => {
-    if (!start && !end) return "";
-    if (start && end && start !== end) return `${start} → ${end}`;
-    return start || end || "";
-  };
+  const sciflowConferences = conferences.filter((c) => c.source !== "dev.events");
+  const devEventsConferences = conferences.filter((c) => c.source === "dev.events");
+
+  const renderList = (list: Conference[], isExternal: boolean) => (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+      {list.map((c) => (
+        <motion.div key={c.id} whileHover={{ x: 5 }} className="card" style={{ padding: '16px 20px' }}>
+          <Link to={`/conferences/${c.id}`} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', textDecoration: 'none', color: 'inherit' }}>
+            <div style={{ flex: 1 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '4px' }}>
+                <span style={{ fontWeight: 700, fontSize: '16px', color: 'white' }}>{c.name}</span>
+                {c.acronym && <span className="badge">{c.acronym}</span>}
+              </div>
+              <div style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'flex', gap: '12px' }}>
+                {c.location && <span>📍 {c.location}</span>}
+                {c.publisher && <span>🏢 {c.publisher}</span>}
+              </div>
+            </div>
+            <div style={{ textAlign: 'right' }}>
+              {typeof c.rating === "number" && (
+                <div style={{ fontWeight: 700, color: 'var(--warning)', fontSize: '15px' }}>⭐ {c.rating.toFixed(1)}</div>
+              )}
+              <div style={{ fontSize: '10px', color: 'var(--text-muted)', marginTop: '2px' }}>{isExternal ? 'External' : 'Sciflow'}</div>
+            </div>
+          </Link>
+        </motion.div>
+      ))}
+    </div>
+  );
 
   return (
-    <section className="panel">
-      <div className="panel-header">
-        <div>
-          <div className="panel-title">
-            Conferences
-            <span className="panel-title-pill">Browse & filter</span>
+    <div className="fade-in">
+      <div className="card" style={{ marginBottom: '32px', background: 'var(--glass)', border: '1px solid var(--glass-border)' }}>
+        <h2 style={{ fontSize: '20px', fontWeight: 700, marginBottom: '8px' }}>Refine Results</h2>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', alignItems: 'flex-end' }}>
+          <div className="form-group" style={{ marginBottom: 0, flex: 1, minWidth: '200px' }}>
+            <label>Publisher</label>
+            <input placeholder="Filter by publisher..." value={filterPublisher} onChange={e => setFilterPublisher(e.target.value)} />
           </div>
-          <p className="panel-description">
-            Explore scientific conferences and click one to see full details,
-            events, and papers.
-          </p>
+          <div className="form-group" style={{ marginBottom: 0, width: '120px' }}>
+            <label>Min Rating</label>
+            <input type="number" value={filterMinRating} onChange={e => setFilterMinRating(e.target.value)} placeholder="0-5" />
+          </div>
+          <div className="form-group" style={{ marginBottom: 0, width: '180px' }}>
+            <label>Sort By</label>
+            <select value={sortBy} onChange={e => setSortBy(e.target.value as SortOption)}>
+              <option value="rating_desc">Rating (High-Low)</option>
+              <option value="name">Name (A-Z)</option>
+            </select>
+          </div>
+          <button onClick={handleApplyFilters} className="btn btn-primary" style={{ height: '48px' }}>Apply Filters</button>
         </div>
-      </div>
-
-      <div className="controls-row">
-        <input
-          className="input"
-          placeholder="Filter by publisher"
-          value={filterPublisher}
-          onChange={(e) => setFilterPublisher(e.target.value)}
-        />
-        <input
-          className="input"
-          type="number"
-          placeholder="Min rating"
-          value={filterMinRating}
-          onChange={(e) => setFilterMinRating(e.target.value)}
-          style={{ maxWidth: 110 }}
-        />
-        <input
-          className="input"
-          type="number"
-          placeholder="Min cred."
-          value={filterMinCred}
-          onChange={(e) => setFilterMinCred(e.target.value)}
-          style={{ maxWidth: 110 }}
-        />
-        <select
-          className="select"
-          value={sortBy}
-          onChange={(e) => setSortBy(e.target.value as SortOption)}
-        >
-          <option value="rating_desc">Sort: rating high → low</option>
-          <option value="name">Sort: name A → Z</option>
-        </select>
-        <button
-          type="button"
-          className="button-secondary button"
-          onClick={handleApplyFilters}
-        >
-          Apply
-        </button>
       </div>
 
       {conferences.length === 0 ? (
-        <div className="empty-state">
-          No conferences match the current filters. Use “Create conference” in
-          the header to add one.
+        <div style={{ textAlign: 'center', padding: '60px' }}>
+          <p style={{ color: 'var(--text-muted)' }}>No matches found for your criteria.</p>
         </div>
       ) : (
-        <ul className="conferences-list">
-          {conferences.map((c) => (
-            <li key={c.id} className="conference-item">
-              <Link to={`/conferences/${c.id}`} className="conference-link">
-                <div className="conference-name-row">
-                  <span className="conference-name">{c.name}</span>
-                  {typeof c.rating === "number" && (
-                    <span className="badge badge-rating">
-                      Rating {c.rating.toFixed(1)}
-                    </span>
-                  )}
-                </div>
-                {c.series && (
-                  <div className="panel-description" style={{ marginTop: 2 }}>
-                    {c.series}
-                  </div>
-                )}
-                <div className="conference-meta">
-                  {c.publisher && (
-                    <span className="badge badge-publisher">
-                      {c.publisher}
-                    </span>
-                  )}
-                  {c.location && (
-                    <span className="badge badge-location">{c.location}</span>
-                  )}
-                  {formatDates(c.start_date, c.end_date) && (
-                    <span className="badge">
-                      {formatDates(c.start_date, c.end_date)}
-                    </span>
-                  )}
-                  {typeof c.credibility === "number" && (
-                    <span className="badge">
-                      Credibility {c.credibility.toFixed(1)}
-                    </span>
-                  )}
-                </div>
-              </Link>
-            </li>
-          ))}
-        </ul>
+        <>
+          {sciflowConferences.length > 0 && (
+            <div style={{ marginBottom: '40px' }}>
+              <h3 style={{ fontSize: '18px', fontWeight: 700, marginBottom: '20px', color: 'var(--text-secondary)' }}>Sciflow Exclusive</h3>
+              {renderList(sciflowConferences, false)}
+            </div>
+          )}
+          {devEventsConferences.length > 0 && (
+            <div>
+              <h3 style={{ fontSize: '18px', fontWeight: 700, marginBottom: '20px', color: 'var(--text-secondary)' }}>Global Feed</h3>
+              {renderList(devEventsConferences, true)}
+            </div>
+          )}
+        </>
       )}
-    </section>
+    </div>
   );
 }

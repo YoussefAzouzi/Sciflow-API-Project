@@ -1,8 +1,11 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+import os
 
 from .db import engine, Base
-from .routers import conferences, events, auth, ratings, interests, comments, users
+from .routers import conferences, auth, ratings, interests, comments, users, notifications
+from .routers import google_integration  # NEW
 
 app = FastAPI(
     title="Sciflow API",
@@ -32,8 +35,16 @@ async def on_startup():
 
 app.include_router(auth.router)
 app.include_router(conferences.router)
-app.include_router(events.router)
+
 app.include_router(ratings.router)
 app.include_router(interests.router)
 app.include_router(comments.router)
 app.include_router(users.router)
+app.include_router(google_integration.router)  # NEW
+app.include_router(notifications.router)
+
+# Mount static files
+STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "static")
+if not os.path.exists(STATIC_DIR):
+    os.makedirs(STATIC_DIR)
+app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
