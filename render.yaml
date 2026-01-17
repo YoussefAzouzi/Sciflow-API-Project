@@ -27,9 +27,11 @@ services:
   - type: web
     name: sciflow-frontend
     env: static
-    root: frontend
-    buildCommand: npm install && npm run build
-    staticPublishPath: ./dist
+    buildCommand: |
+      cd frontend
+      npm install
+      npm run build
+    staticPublishPath: ./frontend/dist
     envVars:
       - key: NODE_VERSION
         value: 20.9.0
